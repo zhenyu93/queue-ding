@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Queue Call</title>
+</head>
+<body style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;background:#0b1220;color:#fff;">
+  <h1 id="ticket">?? Now Serving!</h1>
+
+  <!-- Play the Mixkit sound -->
+  <audio id="ding" src="mixkit-airport-announcement-ding-1569.mp3" autoplay></audio>
+
+  <script>
+    // Optional: show ticket number from Airtable
+    const p = new URLSearchParams(location.search);
+    const t = p.get('ticket');
+    if (t) document.getElementById('ticket').textContent = "?? Now Serving: " + t;
+
+    // Close tab after 5 seconds
+    setTimeout(() => window.close(), 5000);
+  </script>
+</body>
+</html>
