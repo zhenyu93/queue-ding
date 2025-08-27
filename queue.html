@@ -1,124 +1,226 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Ding Player (Status: Called)</title>
+<title>Now Serving — Ding Player</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+
+<!-- ========= THEME (edit freely) ========= -->
 <style>
-  :root{--bg:#0b1220;--fg:#ecf2ff;--muted:#9fb3c8}
+  :root{
+    --bg: #0b1220;        /* page background */
+    --card:#121a2b;       /* panel background */
+    --fg: #ecf2ff;        /* main text */
+    --muted:#9fb3c8;      /* secondary text */
+    --accent:#71c7ec;     /* accent for highlights */
+  }
   html,body{height:100%}
-  body{margin:0;display:flex;align-items:center;justify-content:center;
-       font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
-       background:var(--bg);color:var(--fg)}
-  .box{max-width:760px;text-align:center;padding:24px 28px;border-radius:16px;background:#121a2b}
-  h1{margin:.2rem 0 1rem 0;font-size:1.8rem}
-  .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-  button{padding:10px 14px;border-radius:10px;border:0;cursor:pointer;font-weight:700}
-  .muted{color:var(--muted);margin-top:.6rem}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .wrap{ width:min(1200px,96vw); padding:16px;}
+  .board{
+    background:var(--card); border-radius:24px; padding:28px;
+    box-shadow:0 20px 60px rgba(0,0,0,.35);
+  }
+  .hdr{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;}
+  .title{ font-size:28px; font-weight:800; letter-spacing:.5px; margin:0;}
+  .pill{ font-size:13px; color:var(--muted); background:#0d2033; padding:8px 12px; border-radius:999px;}
+  .grid{ display:grid; grid-template-columns: 2fr 1fr; gap:18px;}
+  .card{ border:1px solid rgba(255,255,255,.06); background:rgba(255,255,255,.03); border-radius:18px; padding:20px;}
+  .label{ color:var(--muted); text-transform:uppercase; letter-spacing:.12em; font-size:12px; margin-bottom:6px;}
+  .ticket{ font-size:120px; font-weight:900; line-height:.9; letter-spacing:2px; word-break:break-word;}
+  .name{ font-size:40px; font-weight:700; line-height:1.1; margin-top:8px;}
+  .counter{ font-size:26px; color:var(--muted); margin-top:6px;}
+  .row{ display:flex; align-items:center; justify-content:space-between; gap:12px;}
+  .next{ font-size:28px; font-weight:700}
+  .muted{ color:var(--muted)}
+  .controls{ display:flex; gap:10px; align-items:center }
+  button{
+    background:var(--accent); color:#081018; border:none; border-radius:12px; padding:10px 14px; font-weight:800; cursor:pointer;
+  }
+  .blink{ animation:blink 1s ease-out 3 }
+  @keyframes blink{
+    0%{ transform:scale(1); box-shadow:0 0 0 rgba(113,199,236,.6) }
+    50%{ transform:scale(1.02); box-shadow:0 0 30px rgba(113,199,236,.45) }
+    100%{ transform:scale(1); box-shadow:0 0 0 rgba(113,199,236,0) }
+  }
+  .foot{ display:flex; align-items:center; justify-content:space-between; margin-top:12px; }
 </style>
 
-<div class="box">
-  <h1 id="msg">🔔 Ding Player</h1>
-  <div class="row" style="margin-bottom:.6rem">
-    <button id="enable">Enable sound</button>
-    <button id="test">Test ding</button>
+<div class="wrap">
+  <div class="board" id="board">
+    <div class="hdr">
+      <h1 class="title">Now Serving</h1>
+      <div class="controls">
+        <button id="enable">Enable sound</button>
+        <span class="pill" id="last">Updated —</span>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- Current call -->
+      <div class="card" id="currentCard">
+        <div class="label">Ticket</div>
+        <div class="ticket" id="ticket">—</div>
+        <div class="label" style="margin-top:10px">Details</div>
+        <div class="name" id="name">Called</div>
+        <div class="counter" id="counter">Counter —</div>
+      </div>
+
+      <!-- Up next (optional; shows the previous call for context) -->
+      <div class="card">
+        <div class="row" style="margin-bottom:6px">
+          <div class="label">Previous</div>
+          <div class="muted" id="state">Waiting for first poll…</div>
+        </div>
+        <div class="next" id="prevTicket">—</div>
+        <div class="muted" id="prevCounter">—</div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <div class="muted">Tip: click <b>Enable sound</b> once per browser to allow autoplay.</div>
+      <!-- You can place a school/department logo here -->
+    </div>
   </div>
-  <div class="muted" id="last">Updated —</div>
-  <div class="muted" id="state">Waiting for first poll…</div>
 </div>
 
-<!-- Your queue chime -->
+<!-- Your queue chime (Mixkit: airport announcement) -->
 <audio id="ding" preload="auto"
   src="https://zhenyu93.github.io/queue-ding/mixkit-airport-announcement-ding-1569.mp3"></audio>
 
 <script>
-  // ===== 1) CONFIG — EDIT THESE =====
-  const AIRTABLE_TOKEN    = "paty7dc6oUwE3AcK4.b0926f7e850d8f371e5cc711af0fcfa42cab943e0c8b05b380ef54e8c53e723c";     // read-only, base-restricted
-  const BASE_ID          = "appY6mqMYKWdUQEKS";       // your base id
-  const TABLE_NAME       = "Ticket Queue";                   // table tab name
-  const VIEW_NAME        = "";                        // optional view (leave blank to start)
+  /*******************
+   * CONFIG — EDIT ME
+   *******************/
+  const AIRTABLE_TOKEN     = "paty7dc6oUwE3AcK4.b0926f7e850d8f371e5cc711af0fcfa42cab943e0c8b05b380ef54e8c53e723c";  // read-only, base-scoped
+  const BASE_ID            = "appY6mqMYKWdUQEKS";
+  const TABLE_NAME         = "Ticket Queue";            // your table/tab name
+  const VIEW_NAME          = "";                 // optional: e.g. "Active"
+  // Field names (case/space sensitive)
+  const FIELD_STATUS       = "Status";           // Waiting / Called / Done
+  const FIELD_TICKET       = "Staff Name";           // shown in big type
+  const FIELD_TIME_CALLED  = "Time Called";      // Date/Time set on call
+  const FIELD_COUNTER_OPT  = "Counter";          // optional; leave as "" if you don't have it
+  const FIELD_NAME_OPT     = "";                 // optional "Name" (leave "" to hide)
 
-  const FIELD_STATUS     = "Status";                  // Single select: Waiting / Called / Done
-  const FIELD_TICKET     = "Staff Name";                  // shown on screen
-  const FIELD_TIME_CALLED= "Time Called";             // DateTime set when calling
+  // Polling (1s is snappy and still safe)
+  const POLL_MS = 1000;
 
-  const POLL_MS          = 1000;  // 1s polling: snappy, still within limits
+  /*******************
+   * RUNTIME STATE
+   *******************/
+  const $ = (id) => document.getElementById(id);
+  const elTicket = $("ticket"), elName = $("name"), elCounter = $("counter");
+  const elPrevTicket = $("prevTicket"), elPrevCounter = $("prevCounter");
+  const elUpdated = $("last"), elState = $("state");
+  const elCurrentCard = $("currentCard");
+  const audio = $("ding");
 
-  // ===== 2) STATE =====
   let soundOK = false;
-  let lastKey = null;    // composite of recordId + time
-  let initialised = false;
+  let lastKey = null;  // composite key: id + time
+  let prevKey = null;
 
-  const elMsg   = document.getElementById("msg");
-  const elLast  = document.getElementById("last");
-  const elState = document.getElementById("state");
-  const audio   = document.getElementById("ding");
-
-  // Sound controls
-  document.getElementById("enable").onclick = async () => {
+  $("enable").onclick = async () => {
     try { await audio.play(); audio.pause(); audio.currentTime = 0; soundOK = true; }
     catch {}
-    const btn = document.getElementById("enable");
-    btn.textContent = "Sound enabled"; btn.disabled = true;
-    elState.textContent = "Sound unlocked.";
+    $("enable").textContent = "Sound enabled"; $("enable").disabled = true;
   };
-  document.getElementById("test").onclick = () => { if (soundOK) { audio.currentTime = 0; audio.play().catch(()=>{}); } };
 
-  function setUpdated() {
+  function setUpdated(){
     const d = new Date();
-    elLast.textContent = "Updated " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    elUpdated.textContent = "Updated " + d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+  }
+  function blinkCard(){
+    elCurrentCard.classList.remove("blink");
+    void elCurrentCard.offsetWidth;
+    elCurrentCard.classList.add("blink");
+  }
+  function keyFor(rec){
+    const id = rec.id;
+    const t  = rec.fields?.[FIELD_TIME_CALLED] || "";
+    return id + "::" + t;
+  }
+  function getField(rec, name){
+    if (!name) return "";
+    return rec.fields?.[name] ?? "";
   }
 
-  // ===== 3) FETCH LATEST 'Called' (newest by Time Called) =====
-  async function fetchLatestCalled() {
+  /*******************
+   * FETCH TOP 2 CALLED
+   *******************/
+  async function fetchTop2(){
     const url = new URL(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}`);
     if (VIEW_NAME) url.searchParams.set("view", VIEW_NAME);
-    url.searchParams.set("maxRecords", "1");
+    url.searchParams.set("maxRecords", "2");
+    url.searchParams.set("pageSize", "2");
     url.searchParams.set("filterByFormula", `AND({${FIELD_STATUS}}='Called')`);
     url.searchParams.set("sort[0][field]", FIELD_TIME_CALLED);
     url.searchParams.set("sort[0][direction]", "desc");
 
     const res = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` },
-      cache: "no-store"  // avoid any caching weirdness
+      cache: "no-store"
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    return (data.records && data.records[0]) ? data.records[0] : null;
+    return data.records || [];
   }
 
-  function makeKey(rec) {
-    const id = rec.id;
-    const t  = rec.fields?.[FIELD_TIME_CALLED] || "";
-    return id + "::" + t;
-  }
+  async function tick(){
+    try{
+      const recs = await fetchTop2();
+      const current = recs[0];
+      const previous = recs[1];
 
-  async function tick() {
-    try {
-      const rec = await fetchLatestCalled();
-      if (rec) {
-        const ticket = rec.fields?.[FIELD_TICKET] ?? "—";
-        elMsg.textContent = "🔔 Called: " + ticket;
+      if (current){
+        const ticket = current.fields?.[FIELD_TICKET] ?? "—";
+        const counter = getField(current, FIELD_COUNTER_OPT);
+        const name = getField(current, FIELD_NAME_OPT);
 
-        const key = makeKey(rec); // id + timestamp
-        // On first run, just set baseline; from then on, ding only when key changes
-        if (!initialised) {
-          lastKey = key; initialised = true;
-          elState.textContent = "Initialised (no ding on first load).";
-        } else if (key !== lastKey) {
+        elTicket.textContent = ticket;
+        elCounter.textContent = counter ? `Counter ${counter}` : "Counter —";
+        elName.textContent = name ? name : "Called";
+
+        const key = keyFor(current);
+        if (lastKey === null){
+          // First poll: set baseline; no ding
           lastKey = key;
+          elState.textContent = "Initialised.";
+        } else if (key !== lastKey){
+          // New call: update key, play ding, blink
+          prevKey = lastKey; lastKey = key;
+          if (soundOK){ audio.currentTime = 0; audio.play().catch(()=>{}); }
+          blinkCard();
           elState.textContent = "New call detected.";
-          if (soundOK) { audio.currentTime = 0; audio.play().catch(()=>{}); }
+        } else {
+          elState.textContent = "No change.";
         }
       } else {
-        elMsg.textContent = "🔔 Waiting for next call…";
-        elState.textContent = "No records in Status=Called.";
+        elTicket.textContent = "—";
+        elCounter.textContent = "Counter —";
+        elName.textContent = "Waiting…";
+        elState.textContent = "No records in Status = Called.";
+        lastKey = null;
       }
+
+      if (previous){
+        const pt = previous.fields?.[FIELD_TICKET] ?? "—";
+        const pc = getField(previous, FIELD_COUNTER_OPT);
+        elPrevTicket.textContent = pt;
+        elPrevCounter.textContent = pc ? `Counter ${pc}` : "—";
+      } else {
+        elPrevTicket.textContent = "—";
+        elPrevCounter.textContent = "—";
+      }
+
       setUpdated();
-    } catch (e) {
+    } catch (e){
       elState.textContent = "Error: " + e.message;
     } finally {
       setTimeout(tick, POLL_MS);
     }
   }
-
   tick();
 </script>
