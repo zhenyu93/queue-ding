@@ -119,77 +119,76 @@
   function keyFor(rec){ return rec.id+"::"+(rec.fields?.[FIELD_TIME_CALLED]||""); }
   const get=(rec,f)=>f?(rec.fields?.[f]??""):"";
 
-  async function fetchTopN(n){
-    const url=new URL(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}`);
-    if(VIEW_NAME) url.searchParams.set("view",VIEW_NAME);
-    url.searchParams.set("maxRecords",String(n));
-    url.searchParams.set("filterByFormula",`AND({${FIELD_STATUS}}='Called')`);
-    url.searchParams.set("sort[0][field]",FIELD_TIME_CALLED);
-    url.searchParams.set("sort[0][direction]","desc");
-    const res=await fetch(url,{headers:{Authorization:`Bearer ${AIRTABLE_TOKEN}`},cache:"no-store"});
-    if(!res.ok) throw new Error("HTTP "+res.status);
-    const data=await res.json(); return data.records||[];
-  }
+async function tick(){
+  try{
+    const recs = await fetchTopN(6);
+    const current  = recs[0];
+    const previous = recs.slice(1, 6);
 
-  function renderPrevious(list){
-    elPrevList.innerHTML="";
-    if(!list.length){ elPrevList.innerHTML='<div class="muted">—</div>'; return; }
-    for(const rec of list){
-      const t=rec.fields?.[FIELD_TICKET]??"—";
-      const c=get(rec,FIELD_COUNTER_OPT);
-      const ts=rec.fields?.[FIELD_TIME_CALLED]?new Date(rec.fields[FIELD_TIME_CALLED]):null;
-      const sub=(ts?ts.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"}):"—")+(c?` • Counter ${c}`:"");
-      const div=document.createElement("div");
-      div.className="prev-item";
-      div.innerHTML=`<div class="prev-left"><div class="prev-ticket">${t}</div><div class="prev-sub">${sub}</div></div>`;
-      elPrevList.appendChild(div);
-    }
-  }
+    if (current){
+      const ticket  = current.fields?.[FIELD_TICKET] ?? "—";
+      const counter = get(current, FIELD_COUNTER_OPT);
 
-   async function tick(){
-    try{
-      const recs = await fetchTopN(6);
-      const current = recs[0], previous = recs.slice(1, 6);
+      // Show ticket
+      elTicket.textContent = ticket;
 
-      if (current){
-        const ticket  = current.fields?.[FIELD_TICKET] ?? "—";
-        const counter = get(current, FIELD_COUNTER_OPT);
-
-        elTicket.textContent = ticket;
-
-        // Counter text + colour mapping
-        if (counter){
-          elCounter.textContent = `COUNTER ${counter}`;
-          if (String(counter) === "1")      elCounter.style.color = "#1890ff"; // blue
-          else if (String(counter) === "2") elCounter.style.color = "#52c41a"; // green
-          else if (String(counter) === "3") elCounter.style.color = "#fa8c16"; // orange
-          else                              elCounter.style.color = "var(--muted)"; // fallback
-        } else {
-          elCounter.textContent = "";
-          elCounter.style.color = "var(--muted)";
-        }
-
-        const key = keyFor(current);
-        if (lastKey === null){
-          lastKey = key; // first load: baseline (no ding)
-        } else if (key !== lastKey){
-          lastKey = key;
-          if (soundOK){ audio.currentTime = 0; audio.play().catch(()=>{}); }
-          elCurrentCard.classList.remove("blink"); void elCurrentCard.offsetWidth; elCurrentCard.classList.add("blink");
-        }
+      // Counter text + colour mapping
+      if (counter){
+        elCounter.textContent = `COUNTER ${counter}`;
+        if (String(counter) === "1")      elCounter.style.color = "#1890ff"; // blue
+        else if (String(counter) === "2") elCounter.style.color = "#52c41a"; // green
+        else if (String(counter) === "3") elCounter.style.color = "#fa8c16"; // orange
+        else                              elCounter.style.color = "var(--muted)"; // fallback
       } else {
-        elTicket.textContent = "—";
         elCounter.textContent = "";
         elCounter.style.color = "var(--muted)";
-        lastKey = null;
       }
 
-      renderPrevious(previous);
-    } catch(e){
-      console.error(e);
-    } finally {
-      setTimeout(tick, POLL_MS);
+      // Fresh-call gating
+      const key   = keyFor(current);                           // id::TimeCalled
+      const tsIso = current.fields?.[FIELD_TIME_CALLED] || "";
+      const tsMs  = toMs(tsIso);
+      const nowMs = Date.now();
+
+      // Conditions:
+      // 1) key changed (new record or updated timestamp)
+      // 2) timestamp increased vs last time we dinged
+      // 3) it's fresh (<= 10s old) to avoid dings on Completed/reshuffles
+      const isNewKey = (lastKey !== null) && (key !== lastKey);
+      const isNewer  = tsMs > lastSeenTs;
+      const isFresh  = (nowMs - tsMs) <= 10000; // adjust window if you like
+
+      if (lastKey === null){
+        // First load: set baseline, no sound
+        lastKey = key;
+        lastSeenTs = tsMs;
+      } else if (isNewKey && isNewer && isFresh){
+        lastKey = key;
+        lastSeenTs = tsMs;
+        if (soundOK){ audio.currentTime = 0; audio.play().catch(()=>{}); }
+        elCurrentCard.classList.remove("blink");
+        void elCurrentCard.offsetWidth;
+        elCurrentCard.classList.add("blink");
+      } else if (isNewKey){
+        // Key changed but not a fresh call (e.g., Completed) — update baseline silently
+        lastKey = key;
+        // keep lastSeenTs unchanged so only true new calls advance it
+      }
+
+    } else {
+      // No current Called record
+      elTicket.textContent = "—";
+      elCounter.textContent = "";
+      elCounter.style.color = "var(--muted)";
+      lastKey = null;
     }
+
+    renderPrevious(previous);
+
+  } catch(e){
+    console.error(e);
+  } finally {
+    setTimeout(tick, POLL_MS);
   }
-  tick();
+}
 </script>
