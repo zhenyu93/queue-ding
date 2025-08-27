@@ -98,89 +98,97 @@
   const FIELD_COUNTER_OPT  = "Counter";
   const POLL_MS            = 1000;
 
-  /************* RUNTIME *************/
-  const $ = (id)=>document.getElementById(id);
-  const elTicket=$("ticket"), elCounter=$("counter");
-  const elPrevList=$("prevList"), elCurrentCard=$("currentCard");
-  const audio=$("ding"), overlay=$("overlay"), overlayBtn=$("overlayBtn");
+  <script>
+/************* RUNTIME *************/
+const $ = (id)=>document.getElementById(id);
+const elTicket=$("ticket"), elCounter=$("counter");
+const elPrevList=$("prevList"), elCurrentCard=$("currentCard");
+const audio=$("ding"), overlay=$("overlay"), overlayBtn=$("overlayBtn");
 
-  let soundOK=false, lastKey=null;
+let soundOK=false, lastKey=null;
+let lastSeenTs = 0;                                       // NEW
+const toMs = iso => iso ? new Date(iso).getTime() : 0;    // NEW
 
-  // Try autoplay immediately
-  (async()=>{
-    try{ await audio.play(); audio.pause(); audio.currentTime=0; soundOK=true; }
-    catch{ overlay.style.display="flex"; }
-  })();
-  overlayBtn.onclick=async()=>{
-    try{ await audio.play(); audio.pause(); audio.currentTime=0; soundOK=true; overlay.style.display="none"; }
-    catch{}
-  };
+// Try autoplay immediately
+(async()=>{
+  try{ await audio.play(); audio.pause(); audio.currentTime=0; soundOK=true; }
+  catch{ overlay.style.display="flex"; }
+})();
+overlayBtn.onclick=async()=>{
+  try{ await audio.play(); audio.pause(); audio.currentTime=0; soundOK=true; overlay.style.display="none"; }
+  catch{}
+};
 
-  function keyFor(rec){ return rec.id+"::"+(rec.fields?.[FIELD_TIME_CALLED]||""); }
-  const get=(rec,f)=>f?(rec.fields?.[f]??""):"";
+function keyFor(rec){ return rec.id+"::"+(rec.fields?.[FIELD_TIME_CALLED]||""); }
+const get=(rec,f)=>f?(rec.fields?.[f]??""):"";
 
-   async function tick(){
-    try{
-      const recs = await fetchTopN(6);
-      const current = recs[0], previous = recs.slice(1, 6);
+// NOTE: ensure fetchTopN(n) exists above or below this block.
+// It must return the latest n records where Status = "Called", sorted by Time Called desc.
 
-      if (current){
-        const ticket  = current.fields?.[FIELD_TICKET] ?? "—";
-        const counter = get(current, FIELD_COUNTER_OPT);
+async function tick(){
+  try{
+    const recs = await fetchTopN(6);
+    const current = recs[0], previous = recs.slice(1, 6);
 
-        elTicket.textContent = ticket;
+    if (current){
+      const ticket  = current.fields?.[FIELD_TICKET] ?? "—";
+      const counter = get(current, FIELD_COUNTER_OPT);
 
-        // Counter text + colour mapping
-        if (counter){
-          elCounter.textContent = `COUNTER ${counter}`;
-          if (String(counter) === "1")      elCounter.style.color = "#1890ff"; // blue
-          else if (String(counter) === "2") elCounter.style.color = "#52c41a"; // green
-          else if (String(counter) === "3") elCounter.style.color = "#fa8c16"; // orange
-          else                              elCounter.style.color = "var(--muted)"; // fallback
-        } else {
-          elCounter.textContent = "";
-          elCounter.style.color = "var(--muted)";
-        }
+      elTicket.textContent = ticket;
 
-        const key  = keyFor(current);
-          const tsIso = current.fields?.[FIELD_TIME_CALLED] || "";
-const tsMs  = toMs(tsIso);
-const nowMs = Date.now();
-
-// Conditions:
-// 1) key changed (new record or updated timestamp)
-// 2) timestamp increased vs last time we dinged
-// 3) it's fresh (<= 10s old) to avoid dings when completing/reshuffling
-const isNewKey  = (lastKey !== null) && (key !== lastKey);
-const isNewer   = tsMs > lastSeenTs;
-const isFresh   = (nowMs - tsMs) <= 10000; // adjust window if you like
-
-if (lastKey === null) {
-  // first load: set baseline, no sound
-  lastKey = key;
-  lastSeenTs = tsMs;
-} else if (isNewKey && isNewer && isFresh) {
-  lastKey = key;
-  lastSeenTs = tsMs;
-  if (soundOK) { audio.currentTime = 0; audio.play().catch(()=>{}); }
-  elCurrentCard.classList.remove("blink"); void elCurrentCard.offsetWidth; elCurrentCard.classList.add("blink");
-} else if (isNewKey) {
-  // key changed but not a fresh call (e.g., Completed update) — update baseline silently
-  lastKey = key;
-  // keep lastSeenTs as-is so only true new calls advance it        }
+      // Counter text + colour mapping
+      if (counter){
+        elCounter.textContent = `COUNTER ${counter}`;
+        if (String(counter) === "1")      elCounter.style.color = "#1890ff"; // blue
+        else if (String(counter) === "2") elCounter.style.color = "#52c41a"; // green
+        else if (String(counter) === "3") elCounter.style.color = "#fa8c16"; // orange
+        else                              elCounter.style.color = "var(--muted)"; // fallback
       } else {
-        elTicket.textContent = "—";
         elCounter.textContent = "";
         elCounter.style.color = "var(--muted)";
-        lastKey = null;
       }
 
-      renderPrevious(previous);
-    } catch(e){
-      console.error(e);
-    } finally {
-      setTimeout(tick, POLL_MS);
+      // Fresh-call gating
+      const key   = keyFor(current);
+      const tsIso = current.fields?.[FIELD_TIME_CALLED] || "";
+      const tsMs  = toMs(tsIso);
+      const nowMs = Date.now();
+
+      // 1) key changed, 2) timestamp increased, 3) fresh (<=10s)
+      const isNewKey = (lastKey !== null) && (key !== lastKey);
+      const isNewer  = tsMs > lastSeenTs;
+      const isFresh  = (nowMs - tsMs) <= 10000;
+
+      if (lastKey === null) {
+        // first load: set baseline, no sound
+        lastKey = key;
+        lastSeenTs = tsMs;
+      } else if (isNewKey && isNewer && isFresh) {
+        lastKey = key;
+        lastSeenTs = tsMs;
+        if (soundOK) { audio.currentTime = 0; audio.play().catch(()=>{}); }
+        elCurrentCard.classList.remove("blink");
+        void elCurrentCard.offsetWidth;
+        elCurrentCard.classList.add("blink");
+      } else if (isNewKey) {
+        // key changed but not a fresh call (e.g., Completed) — update baseline silently
+        lastKey = key;
+        // keep lastSeenTs unchanged so only true new calls advance it
+      }
+
+    } else {
+      elTicket.textContent = "—";
+      elCounter.textContent = "";
+      elCounter.style.color = "var(--muted)";
+      lastKey = null;
     }
+
+    renderPrevious(previous);
+  } catch(e){
+    console.error(e);
+  } finally {
+    setTimeout(tick, POLL_MS);
   }
-  tick();
+}
+tick();
 </script>
