@@ -20,7 +20,7 @@
   a.onended = () => setTimeout(() => { a.currentTime = 0; a.play().catch(()=>{}); }, 700);
 
   // ?? Tell Airtable to flip Waiting ? Called via webhook
-  fetch("PASTE_YOUR_AIRTABLE_WEBHOOK_URL_HERE", {
+  fetch(https://hooks.airtable.com/workflows/v1/genericWebhook/appY6mqMYKWdUQEKS/wflsaxxT7IqjY2C2q/wtrwByEA1L9nv16gC, {
     method: "POST",
     headers: {"content-type": "application/json"},
     body: JSON.stringify(payload)
