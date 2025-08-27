@@ -10,7 +10,7 @@
   html,body{height:100%; margin:0; background:var(--bg); color:var(--fg);
     font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
   .wrap{ height:100%; display:flex; align-items:center; justify-content:center; }
-  .board{ width:100%; height:100%; display:grid; grid-template-columns: 2fr 1fr; gap:20px; padding:30px; box-sizing:border-box;}
+  .board{ width:100%; height:100%; display:grid; grid-template-columns: 4fr 1fr; gap:20px; padding:30px; box-sizing:border-box;}
   .current{
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     border-radius:20px; background:var(--card); box-shadow:0 20px 60px rgba(0,0,0,.35);
@@ -21,7 +21,7 @@
     word-break:break-word;
   }
   .counter{
-    font-size:5vw; font-weight:700; margin-top:1rem; color:var(--muted);
+    font-size:5vw; font-weight:700; margin-top:2.5rem; color:var(--muted);
   }
   .previous{
     border-radius:20px; background:var(--card); padding:20px; overflow-y:auto;
@@ -34,8 +34,8 @@
     background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06);
   }
   .prev-left{ display:flex; flex-direction:column; }
-  .prev-ticket{ font-weight:800; font-size:24px; }
-  .prev-sub{ font-size:14px; color:var(--muted); }
+  .prev-ticket{ font-weight:1000; font-size:40px; }
+  .prev-sub{ font-size:18px; color:var(--muted); }
   .blink{ animation:blink 1s ease-out 3 }
   @keyframes blink{
     0%{ transform:scale(1); box-shadow:0 0 0 rgba(113,199,236,.6) }
@@ -67,7 +67,7 @@
 
     <!-- Previous calls -->
     <div class="previous">
-      <div class="label">Previous 5</div>
+      <div class="label">Recently Called</div>
       <div id="prevList"></div>
     </div>
   </div>
@@ -146,29 +146,50 @@
     }
   }
 
-  async function tick(){
+   async function tick(){
     try{
-      const recs=await fetchTopN(6);
-      const current=recs[0], previous=recs.slice(1,6);
-      if(current){
-        const ticket=current.fields?.[FIELD_TICKET]??"—";
-        const counter=get(current,FIELD_COUNTER_OPT);
-        elTicket.textContent=ticket;
-        elCounter.textContent=counter?`Counter ${counter}`:"";
-        const key=keyFor(current);
-        if(lastKey===null){ lastKey=key; }
-        else if(key!==lastKey){
-          lastKey=key;
-          if(soundOK){ audio.currentTime=0; audio.play().catch(()=>{}); }
+      const recs = await fetchTopN(6);
+      const current = recs[0], previous = recs.slice(1, 6);
+
+      if (current){
+        const ticket  = current.fields?.[FIELD_TICKET] ?? "—";
+        const counter = get(current, FIELD_COUNTER_OPT);
+
+        elTicket.textContent = ticket;
+
+        // Counter text + colour mapping
+        if (counter){
+          elCounter.textContent = `COUNTER ${counter}`;
+          if (String(counter) === "1")      elCounter.style.color = "#1890ff"; // blue
+          else if (String(counter) === "2") elCounter.style.color = "#52c41a"; // green
+          else if (String(counter) === "3") elCounter.style.color = "#fa8c16"; // orange
+          else                              elCounter.style.color = "var(--muted)"; // fallback
+        } else {
+          elCounter.textContent = "";
+          elCounter.style.color = "var(--muted)";
+        }
+
+        const key = keyFor(current);
+        if (lastKey === null){
+          lastKey = key; // first load: baseline (no ding)
+        } else if (key !== lastKey){
+          lastKey = key;
+          if (soundOK){ audio.currentTime = 0; audio.play().catch(()=>{}); }
           elCurrentCard.classList.remove("blink"); void elCurrentCard.offsetWidth; elCurrentCard.classList.add("blink");
         }
       } else {
-        elTicket.textContent="—"; elCounter.textContent="";
-        lastKey=null;
+        elTicket.textContent = "—";
+        elCounter.textContent = "";
+        elCounter.style.color = "var(--muted)";
+        lastKey = null;
       }
+
       renderPrevious(previous);
-    }catch(e){ console.error(e); }
-    finally{ setTimeout(tick,POLL_MS); }
+    } catch(e){
+      console.error(e);
+    } finally {
+      setTimeout(tick, POLL_MS);
+    }
   }
   tick();
 </script>
