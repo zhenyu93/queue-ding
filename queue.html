@@ -104,7 +104,8 @@
   const elPrevList=$("prevList"), elCurrentCard=$("currentCard");
   const audio=$("ding"), overlay=$("overlay"), overlayBtn=$("overlayBtn");
 
-  let soundOK=false, lastKey=null;
+  let soundOK=false, lastKey=null; let lastSeenTs = 0;                  // last Time Called we dinged for (ms since epoch)
+const toMs = iso => iso ? new Date(iso).getTime() : 0;  // helper
 
   // Try autoplay immediately
   (async()=>{
@@ -169,14 +170,34 @@
           elCounter.style.color = "var(--muted)";
         }
 
-        const key = keyFor(current);
-        if (lastKey === null){
-          lastKey = key; // first load: baseline (no ding)
-        } else if (key !== lastKey){
-          lastKey = key;
-          if (soundOK){ audio.currentTime = 0; audio.play().catch(()=>{}); }
-          elCurrentCard.classList.remove("blink"); void elCurrentCard.offsetWidth; elCurrentCard.classList.add("blink");
-        }
+     const key  = keyFor(current);
+const tsIso = current.fields?.[FIELD_TIME_CALLED] || "";
+const tsMs  = toMs(tsIso);
+const nowMs = Date.now();
+
+// Conditions:
+// 1) key changed (new record or updated timestamp)
+// 2) timestamp increased vs last time we dinged
+// 3) it's fresh (<= 10s old) to avoid dings when completing/reshuffling
+const isNewKey  = (lastKey !== null) && (key !== lastKey);
+const isNewer   = tsMs > lastSeenTs;
+const isFresh   = (nowMs - tsMs) <= 10000; // adjust window if you like
+
+if (lastKey === null) {
+  // first load: set baseline, no sound
+  lastKey = key;
+  lastSeenTs = tsMs;
+} else if (isNewKey && isNewer && isFresh) {
+  lastKey = key;
+  lastSeenTs = tsMs;
+  if (soundOK) { audio.currentTime = 0; audio.play().catch(()=>{}); }
+  elCurrentCard.classList.remove("blink"); void elCurrentCard.offsetWidth; elCurrentCard.classList.add("blink");
+} else if (isNewKey) {
+  // key changed but not a fresh call (e.g., Completed update) — update baseline silently
+  lastKey = key;
+  // keep lastSeenTs as-is so only true new calls advance it
+}
+
       } else {
         elTicket.textContent = "—";
         elCounter.textContent = "";
