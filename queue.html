@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Ding Player (Called)</title>
+<title>Ding Player (Status: Called)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
   :root{--bg:#0b1220;--fg:#ecf2ff;--muted:#9fb3c8}
@@ -8,17 +8,21 @@
   body{margin:0;display:flex;align-items:center;justify-content:center;
        font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
        background:var(--bg);color:var(--fg)}
-  .box{max-width:720px;text-align:center;padding:24px 28px;border-radius:16px;background:#121a2b}
+  .box{max-width:760px;text-align:center;padding:24px 28px;border-radius:16px;background:#121a2b}
   h1{margin:.2rem 0 1rem 0;font-size:1.8rem}
+  .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
   button{padding:10px 14px;border-radius:10px;border:0;cursor:pointer;font-weight:700}
   .muted{color:var(--muted);margin-top:.6rem}
 </style>
 
 <div class="box">
   <h1 id="msg">🔔 Ding Player</h1>
-  <button id="enable">Enable sound</button>
-  <div class="muted">Leave this page open. It chimes when a new record is set to “Called”.</div>
+  <div class="row" style="margin-bottom:.6rem">
+    <button id="enable">Enable sound</button>
+    <button id="test">Test ding</button>
+  </div>
   <div class="muted" id="last">Updated —</div>
+  <div class="muted" id="state">Waiting for first poll…</div>
 </div>
 
 <!-- Your queue chime -->
@@ -27,62 +31,94 @@
 
 <script>
   // ===== 1) CONFIG — EDIT THESE =====
-  const AIRTABLE_TOKEN = "paty7dc6oUwE3AcK4.b0926f7e850d8f371e5cc711af0fcfa42cab943e0c8b05b380ef54e8c53e723c"; // read-only, base-restricted
-  const BASE_ID       = "appY6mqMYKWdUQEKS";              // your base id
-  const TABLE_NAME    = "Ticket Queue";                           // change if your table differs
-  const VIEW_NAME     = "";                                // optional, e.g. "Active"
+  const AIRTABLE_TOKEN    = "paty7dc6oUwE3AcK4.b0926f7e850d8f371e5cc711af0fcfa42cab943e0c8b05b380ef54e8c53e723c";     // read-only, base-restricted
+  const BASE_ID          = "appY6mqMYKWdUQEKS";       // your base id
+  const TABLE_NAME       = "Queue";                   // table tab name
+  const VIEW_NAME        = "";                        // optional view (leave blank to start)
 
-  // Field names (exact match to Airtable)
-  const FIELD_STATUS     = "Status";                       // Waiting / Called / Completed
-  const FIELD_TICKET     = "Ticket";                       // shown on screen
-  const FIELD_TIME_CALLED = "Time Called";                 // <— your timestamp field
+  const FIELD_STATUS     = "Status";                  // Single select: Waiting / Called / Done
+  const FIELD_TICKET     = "Ticket";                  // shown on screen
+  const FIELD_TIME_CALLED= "Time Called";             // DateTime set when calling
 
-  const POLL_MS = 500; // snappy but safe
+  const POLL_MS          = 1000;  // 1s polling: snappy, still within limits
 
-  // ===== 2) SOUND UNLOCK =====
-  let soundOK = false, lastRecordId = null;
-  const audio = document.getElementById("ding");
+  // ===== 2) STATE =====
+  let soundOK = false;
+  let lastKey = null;    // composite of recordId + time
+  let initialised = false;
+
+  const elMsg   = document.getElementById("msg");
+  const elLast  = document.getElementById("last");
+  const elState = document.getElementById("state");
+  const audio   = document.getElementById("ding");
+
+  // Sound controls
   document.getElementById("enable").onclick = async () => {
-    try { await audio.play(); audio.pause(); audio.currentTime = 0; soundOK = true; } catch {}
+    try { await audio.play(); audio.pause(); audio.currentTime = 0; soundOK = true; }
+    catch {}
     const btn = document.getElementById("enable");
     btn.textContent = "Sound enabled"; btn.disabled = true;
+    elState.textContent = "Sound unlocked.";
   };
+  document.getElementById("test").onclick = () => { if (soundOK) { audio.currentTime = 0; audio.play().catch(()=>{}); } };
 
-  // ===== 3) FETCH LATEST 'Called' =====
-  async function fetchCurrent() {
+  function setUpdated() {
+    const d = new Date();
+    elLast.textContent = "Updated " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  // ===== 3) FETCH LATEST 'Called' (newest by Time Called) =====
+  async function fetchLatestCalled() {
     const url = new URL(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}`);
     if (VIEW_NAME) url.searchParams.set("view", VIEW_NAME);
     url.searchParams.set("maxRecords", "1");
     url.searchParams.set("filterByFormula", `AND({${FIELD_STATUS}}='Called')`);
     url.searchParams.set("sort[0][field]", FIELD_TIME_CALLED);
     url.searchParams.set("sort[0][direction]", "desc");
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` }});
-    if (!res.ok) return null;
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` },
+      cache: "no-store"  // avoid any caching weirdness
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     return (data.records && data.records[0]) ? data.records[0] : null;
   }
 
-  function setUpdated() {
-    const d = new Date();
-    document.getElementById("last").textContent =
-      "Updated " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  function makeKey(rec) {
+    const id = rec.id;
+    const t  = rec.fields?.[FIELD_TIME_CALLED] || "";
+    return id + "::" + t;
   }
 
   async function tick() {
     try {
-      const rec = await fetchCurrent();
-      if (rec && rec.id !== lastRecordId) {
-        lastRecordId = rec.id; // new call detected
+      const rec = await fetchLatestCalled();
+      if (rec) {
         const ticket = rec.fields?.[FIELD_TICKET] ?? "—";
-        document.getElementById("msg").textContent = "🔔 Called: " + ticket;
-        if (soundOK) { audio.currentTime = 0; audio.play().catch(()=>{}); }
+        elMsg.textContent = "🔔 Called: " + ticket;
+
+        const key = makeKey(rec); // id + timestamp
+        // On first run, just set baseline; from then on, ding only when key changes
+        if (!initialised) {
+          lastKey = key; initialised = true;
+          elState.textContent = "Initialised (no ding on first load).";
+        } else if (key !== lastKey) {
+          lastKey = key;
+          elState.textContent = "New call detected.";
+          if (soundOK) { audio.currentTime = 0; audio.play().catch(()=>{}); }
+        }
+      } else {
+        elMsg.textContent = "🔔 Waiting for next call…";
+        elState.textContent = "No records in Status=Called.";
       }
-      if (!rec) { document.getElementById("msg").textContent = "🔔 Waiting for next call…"; lastRecordId = null; }
       setUpdated();
-    } catch { document.getElementById("msg").textContent = "⚠️ Couldn’t reach Airtable"; }
-    finally { setTimeout(tick, POLL_MS); }
+    } catch (e) {
+      elState.textContent = "Error: " + e.message;
+    } finally {
+      setTimeout(tick, POLL_MS);
+    }
   }
 
-  // Initialise without dinging on load
-  (async () => { const first = await fetchCurrent(); lastRecordId = first?.id ?? null; setUpdated(); setTimeout(tick, POLL_MS); })();
+  tick();
 </script>
