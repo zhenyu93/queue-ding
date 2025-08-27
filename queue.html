@@ -1,23 +1,98 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Queue Call</title>
-</head>
-<body style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;background:#0b1220;color:#fff;">
-  <h1 id="ticket">?? Now Serving!</h1>
+<!doctype html>
+<meta charset="utf-8">
+<title>Ding Player</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{--bg:#0b1220;--fg:#ecf2ff;--muted:#9fb3c8}
+  html,body{height:100%}
+  body{margin:0;display:flex;align-items:center;justify-content:center;
+       font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--fg)}
+  .box{max-width:720px;text-align:center;padding:24px 28px;border-radius:16px;background:#121a2b}
+  h1{margin:.2rem 0 1rem 0;font-size:1.8rem}
+  button{padding:10px 14px;border-radius:10px;border:0;cursor:pointer;font-weight:700}
+  .muted{color:var(--muted);margin-top:.6rem}
+</style>
 
-  <!-- Play the Mixkit sound -->
-  <audio id="ding" src="mixkit-airport-announcement-ding-1569.mp3" autoplay></audio>
+<div class="box">
+  <h1 id="msg">🔔 Ding Player</h1>
+  <button id="enable">Enable sound</button>
+  <div class="muted">Leave this page open. It chimes when a new record is set to “Now Serving”.</div>
+  <div class="muted" id="last">Updated —</div>
+</div>
 
-  <script>
-    // Optional: show ticket number from Airtable
-    const p = new URLSearchParams(location.search);
-    const t = p.get('ticket');
-    if (t) document.getElementById('ticket').textContent = "?? Now Serving: " + t;
+<!-- Your Mixkit chime -->
+<audio id="ding" preload="auto"
+  src="https://zhenyu93.github.io/queue-ding/mixkit-airport-announcement-ding-1569.mp3"></audio>
 
-    // Close tab after 5 seconds
-    setTimeout(() => window.close(), 5000);
-  </script>
-</body>
-</html>
+<script>
+  // ===== 1) CONFIG — EDIT THESE =====
+  const AIRTABLE_TOKEN = "ca5e2d16b7dbc10afb4f252112a69de7b449b83bcfd7bd";      // read-only PAT, base-restricted
+  const BASE_ID       = "appY6mqMYKWdUQEKS";         // your base id
+  const TABLE_NAME    = "Queue";                     // << change if your table name differs
+  const VIEW_NAME     = "";                          // optional, e.g. "Active Calls"
+
+  // Field names in your base:
+  const FIELD_STATUS  = "Status";                    // Waiting / Now Serving / Done
+  const FIELD_TICKET  = "Ticket";                    // displayed on screen
+  const FIELD_NOW_AT  = "Now Serving At";            // datetime set when calling
+
+  // Polling interval (ms)
+  const POLL_MS = 500; // snappy but safe
+
+  // ===== 2) SOUND UNLOCK =====
+  let soundOK = false, lastRecordId = null;
+  const audio = document.getElementById("ding");
+  document.getElementById("enable").onclick = async () => {
+    try { await audio.play(); audio.pause(); audio.currentTime = 0; soundOK = true; } catch {}
+    const btn = document.getElementById("enable");
+    btn.textContent = "Sound enabled"; btn.disabled = true;
+  };
+
+  // ===== 3) FETCH CURRENT "NOW SERVING" (newest by time) =====
+  async function fetchCurrent() {
+    const url = new URL(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_NAME)}`);
+    if (VIEW_NAME) url.searchParams.set("view", VIEW_NAME);
+    url.searchParams.set("maxRecords", "1");
+    url.searchParams.set("filterByFormula", `AND({${FIELD_STATUS}}='Now Serving')`);
+    url.searchParams.set("sort[0][field]", FIELD_NOW_AT);
+    url.searchParams.set("sort[0][direction]", "desc");
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data.records && data.records[0]) ? data.records[0] : null;
+  }
+
+  function setUpdated() {
+    const d = new Date();
+    document.getElementById("last").textContent =
+      "Updated " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  async function tick() {
+    try {
+      const rec = await fetchCurrent();
+      if (rec && rec.id !== lastRecordId) {
+        lastRecordId = rec.id;                         // new call detected
+        const ticket = rec.fields?.[FIELD_TICKET] ?? "—";
+        document.getElementById("msg").textContent = "🔔 Now Serving: " + ticket;
+        if (soundOK) { audio.currentTime = 0; audio.play().catch(()=>{}); }
+      }
+      if (!rec) {
+        document.getElementById("msg").textContent = "🔔 Waiting for next call…";
+        lastRecordId = null;
+      }
+      setUpdated();
+    } catch {
+      document.getElementById("msg").textContent = "⚠️ Couldn’t reach Airtable";
+    } finally {
+      setTimeout(tick, POLL_MS);
+    }
+  }
+
+  // Initialise without dinging on load
+  (async () => { const first = await fetchCurrent(); lastRecordId = first?.id ?? null; setUpdated(); setTimeout(tick, POLL_MS); })();
+</script>
