@@ -1,0 +1,97 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Ding Player — Debug</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#0b1220;color:#ecf2ff}
+  .wrap{max-width:900px;margin:24px auto;padding:0 16px}
+  h1{margin:0 0 12px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+  input,button{padding:10px;border-radius:10px;border:0}
+  input{min-width:260px}
+  button{cursor:pointer;font-weight:700}
+  pre{background:#121a2b;border-radius:12px;padding:12px;overflow:auto;max-height:320px}
+  .ok{color:#9cff9c}.warn{color:#ffd38a}.err{color:#ff9ca8}
+</style>
+<div class="wrap">
+  <h1>🔧 Ding Player — Debug</h1>
+  <p>Fill these exactly as in Airtable (case-sensitive). Then click <b>Test API</b>.</p>
+
+  <div class="row">
+    <input id="token" placeholder="AIRTABLE_TOKEN (read-only, base-scoped)" />
+    <input id="base"  placeholder="BASE_ID (e.g., appY6mqMYKWdUQEKS)" />
+  </div>
+  <div class="row">
+    <input id="table" placeholder="TABLE_NAME (e.g., Queue)" value="Queue" />
+    <input id="view"  placeholder="VIEW_NAME (optional)" />
+  </div>
+  <div class="row">
+    <input id="fieldStatus" placeholder="FIELD_STATUS" value="Status" />
+    <input id="fieldCalledAt" placeholder="FIELD_TIME_CALLED" value="Time Called" />
+    <input id="fieldTicket" placeholder="FIELD_TICKET" value="Ticket" />
+  </div>
+
+  <div class="row">
+    <button id="test">Test API</button>
+    <button id="enable">Enable sound</button>
+  </div>
+
+  <p id="status">Status: <span class="warn">Idle</span></p>
+  <pre id="out"></pre>
+
+  <audio id="ding" preload="auto"
+    src="https://zhenyu93.github.io/queue-ding/mixkit-airport-announcement-ding-1569.mp3"></audio>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let soundOK = false;
+  $("enable").onclick = async () => {
+    const a = $("ding");
+    try { await a.play(); a.pause(); a.currentTime = 0; soundOK = true;
+      $("status").innerHTML = 'Status: <span class="ok">Sound enabled</span>';
+    } catch { $("status").innerHTML = 'Status: <span class="err">Autoplay blocked — click again</span>'; }
+  };
+
+  $("test").onclick = async () => {
+    const token = $("token").value.trim();
+    const base  = $("base").value.trim();
+    const table = $("table").value.trim();
+    const view  = $("view").value.trim();
+    const FIELD_STATUS = $("fieldStatus").value.trim();
+    const FIELD_TIME   = $("fieldCalledAt").value.trim();
+    const FIELD_TICKET = $("fieldTicket").value.trim();
+
+    if(!token || !base){ $("out").textContent="Please enter AIRTABLE_TOKEN and BASE_ID."; return; }
+
+    const url = new URL(`https://api.airtable.com/v0/${base}/${encodeURIComponent(table)}`);
+    if(view) url.searchParams.set("view", view);
+    url.searchParams.set("maxRecords", "1");
+    url.searchParams.set("filterByFormula", `AND({${FIELD_STATUS}}='Called')`);
+    url.searchParams.set("sort[0][field]", FIELD_TIME);
+    url.searchParams.set("sort[0][direction]", "desc");
+
+    $("status").innerHTML = 'Status: <span class="warn">Testing…</span>';
+    $("out").textContent  = url.toString() + "\n\n";
+
+    try {
+      const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` }});
+      const txt = await res.text();
+      $("out").textContent += `HTTP ${res.status}\n${txt}`;
+
+      if (!res.ok) { $("status").innerHTML = 'Status: <span class="err">API error — check names/token</span>'; return; }
+      const data = JSON.parse(txt);
+      if (!data.records || data.records.length === 0) {
+        $("status").innerHTML = 'Status: <span class="warn">No records with Status="Called". Check your button/automation.</span>';
+        return;
+      }
+      const rec = data.records[0];
+      const ticket = rec.fields?.[FIELD_TICKET] ?? "—";
+      $("status").innerHTML = 'Status: <span class="ok">OK — latest Called is "'+ticket+'"</span>';
+      if (soundOK) { const a = $("ding"); a.currentTime = 0; a.play().catch(()=>{}); }
+    } catch (e) {
+      $("status").innerHTML = 'Status: <span class="err">Network/JS error</span>';
+      $("out").textContent += "\n\n" + e.stack;
+    }
+  };
+</script>
