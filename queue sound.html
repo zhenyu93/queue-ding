@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Call & Ding</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<audio id="ding" autoplay
+  src="https://zhenyu93.github.io/queue-ding/mixkit-airport-announcement-ding-1569.mp3"></audio>
+<script>
+  // Read values passed from Airtable button
+  const p = new URLSearchParams(location.search);
+  const payload = {
+    recordId: p.get("rid"),              // RECORD_ID() from Airtable
+    ticket:   p.get("ticket") || "",     // optional
+    counter:  p.get("counter") || ""     // optional
+  };
+
+  // ?? Play sound immediately (allowed because this tab was opened by a click)
+  const a = document.getElementById("ding");
+  a.volume = 1.0;
+  // Optional double-ding for attention (comment out if not needed)
+  a.onended = () => setTimeout(() => { a.currentTime = 0; a.play().catch(()=>{}); }, 700);
+
+  // ?? Tell Airtable to flip Waiting ? Called via webhook
+  fetch("PASTE_YOUR_AIRTABLE_WEBHOOK_URL_HERE", {
+    method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify(payload)
+  }).finally(() => setTimeout(() => { try { window.close(); } catch(e){} }, 3000));
+</script>
